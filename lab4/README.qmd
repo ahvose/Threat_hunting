@@ -1,0 +1,79 @@
+---
+title: "Анализ логов с помощью языка R"
+author: Хвощев Алексей, БИСО-03-20
+format: 
+    md:
+        output-file: README.md
+engine: knitr
+---
+
+## Цель работы
+
+1.  Развить практические навыки использования языка программирования R для обработки данных
+2.  Научиться работать с пакетом tidyverse
+3.  Научиться анализировать метаданные с помощью языка R
+
+## Ход работы
+
+## Подготовка данных для работы
+
+В самом начале нужно подготовить данные для работы, для этого импортируем данные из файла .log и .csv и преобразуем их
+```{r}
+library(tidyverse)
+dataLog <- read.csv("dns.log",sep="\t")
+dataCSV <- read.csv("header.csv")
+dataCSV
+```
+
+```{r}
+dataCSV[3,"Field"] <- "id.orig_h"
+dataCSV[3,"Type"] <- "addr"
+dataCSV[4,"Field"] <- "id.resp_h"
+dataCSV[4,"Type"] <- "addr"
+dataCSV[4,"Description"] <- "Response IP"
+dataCSV <- dataCSV %>% add_row(Field = "id.orig_p", Type = "port", Description = "Origin port", .before = 4)
+dataCSV <- dataCSV %>% add_row(Field = 'id.resp_p', Type = "port", Description = "Response port", .before = 6)
+dataCSV
+```
+
+```{r}
+normal <- dataCSV[,1]
+colnames(dataLog) <- normal
+dataLog$ts <- as.POSIXct(dataLog$ts,origin = "1970-01-01")
+```
+
+```{r}
+glimpse(dataCSV)
+glimpse(dataLog)
+```
+
+## Какое соотношение участников обмена внутри сети и участников обращений к внешним ресурсам?
+
+## Найтип топ-10 участников в сети, проявляющих большую активность?
+```{r}
+ansUsers <- dataLog %>% group_by(id.orig_h) %>% summarise(req = n()) %>% arrange(desc(req)) %>% top_n(10,req)
+ansUsers
+```
+
+## Найти топ-10 доменов, к которым обращались пользователи и количество обращений
+```{r}
+ansDomains <- dataLog %>% group_by(domain = tolower(`query `)) %>% summarise(req = n()) %>% arrange(desc(req)) %>% top_n(10,req)
+ansDomains
+```
+
+## Определить базовые статистические характеристики интервала времени между последовательным обращениям к топ-10 доменам
+```{r}
+ansDomainsF <- dataLog %>% filter(tolower(`query `) %in% ansDomains$domain) %>% arrange(ts)
+interval <- diff(ansDomainsF$ts)
+summary(interval)
+```
+
+## Часто вредоносное программное обеспечение использует DNS канал в качестве каналауправления, периодически отправляя запросы на подконтрольный злоумышленникам DNS сервер. По периодическим запросам на один и тот же домен можно выявить скрытый DNS канал. Есть ли такие IP адреса в исследуемом датасете?
+```{r}
+ipshki <- dataLog %>% group_by(ip = id.orig_h, domain = tolower(`query `)) %>% summarise(req = n(), .groups = "drop") %>% filter(req > 1)
+unqIpshki <- unique(ipshki$ip)
+unqIpshki %>% length()
+unqIpshki
+```
+
+## Определите местоположение и организацию-провайдера для топ-10 доменов. Для этого можно использовать сторонние сервисы.
